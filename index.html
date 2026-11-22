@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake - Paint</title>
+
+  <!-- ============================================================
+       PART 1: CSS (the style of the PAGE, not the snake)
+       The page is a small grid: the score and style buttons sit above
+       the board, and the MODE panel sits to the right of the board.
+       On narrow screens (phones) the panel moves below the board.
+       ============================================================ -->
+  <style>
+    :root {
+      --accent: #22d3ee;                 /* JavaScript changes this when you pick a style */
+      --ink: var(--accent);              /* accent color used for TEXT (darker in light mode) */
+      /* DARK page colors (the default) */
+      --bg: #12141c; --fg: #e8eaf0; --panel: #1b1e2b; --btn-fg: #c9cde0;
+      --guide: #c9cde0; --line: #3a3f55; --line2: #2a2e42; --dim: #6b7088; --mid: #9aa0b8; --hint: #8b90a3;
+      --panel-faint: rgba(255,255,255,0.025); --panel-border: rgba(255,255,255,0.08);
+    }
+    /* LIGHT page colors: JavaScript sets data-page="light" on the page */
+    :root[data-page="light"] {
+      --ink: color-mix(in srgb, var(--accent) 60%, #000);
+      --bg: #f3f1ea; --fg: #1f2430; --panel: #ffffff; --btn-fg: #3a4054;
+      --guide: #3a4054; --line: #c4c8d6; --line2: #d3d6e2; --dim: #7a8099; --mid: #5a6078; --hint: #6b7088;
+      --panel-faint: rgba(0,0,0,0.03); --panel-border: rgba(0,0,0,0.1);
+    }
+    body { transition: background 0.2s, color 0.2s; }
+
+    /* Sound and light/dark switches, fixed at the top right of the screen */
+    #topbar { position: fixed; top: 10px; right: 12px; z-index: 10; display: flex; gap: 8px; }
+    #soundToggle.off { opacity: 0.6; text-decoration: line-through; }
+    #pageToggle, #soundToggle {
+      display: flex; align-items: center; gap: 6px;
+      font-family: inherit; font-size: 12px;
+      padding: 5px 10px;
+      background: var(--panel); color: var(--btn-fg);
+      border: 1px solid var(--line); border-radius: 999px;
+      cursor: pointer;
+    }
+    #pageToggle:hover, #soundToggle:hover { border-color: var(--accent); }
+
+    body {
+      margin: 0;
+      padding: 12px 0;
+      box-sizing: border-box;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Courier New", monospace;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      letter-spacing: 6px;
+      color: var(--ink);
+    }
+
+    /* The layout grid: names like "board" and "modes" are just labels for the cells */
+    #layout {
+      display: grid;
+      grid-template-columns: auto auto;
+      grid-template-areas:
+        "hud     ."
+        "styles  ."
+        "sizes   ."
+        "board   modes"
+        "gallery gallery";
+      column-gap: 14px;
+      justify-content: center;
+    }
+    #hud    { grid-area: hud; display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 18px; }
+    #styles { grid-area: styles; display: flex; gap: 8px; margin-bottom: 6px; justify-content: center; }
+    #sizes  { grid-area: sizes;  display: flex; gap: 8px; margin-bottom: 10px; justify-content: center; }
+    canvas  { grid-area: board; }
+    #modes  { grid-area: modes; }
+
+    /* Style buttons (above the board) */
+    #styles button, #sizes button {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 6px 10px;
+      background: var(--panel);
+      color: var(--btn-fg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #styles button.active, #sizes button.active {
+      border-color: var(--accent);
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    #sizes button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #sizes button.active:disabled { opacity: 0.9; }
+    /* Big boards must still fit next to the side panel on a laptop screen */
+    @media (min-width: 641px) { #game { max-width: calc(100vw - 230px); } }
+
+    canvas {
+      border: 3px solid var(--accent);
+      border-radius: 8px;
+      max-width: 90vw;
+      height: auto;
+      touch-action: none;
+    }
+
+    /* The MODE panel: small, dim, but readable */
+    #modes {
+      align-self: start;
+      width: 150px;
+      padding: 8px;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--panel-faint);
+    }
+    .side-title {
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: var(--dim);
+      margin-bottom: 6px;
+    }
+    #modeList { display: flex; flex-direction: column; gap: 6px; }
+    #modeList button {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
+      font-family: inherit;
+      padding: 6px 8px;
+      background: transparent;
+      color: var(--mid);
+      border: 1px solid var(--line2);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #modeList .m-name { font-size: 12px; }
+    #modeList .m-desc { font-size: 10px; color: var(--dim); margin-top: 2px; }
+    #modeList button.active { border-color: var(--accent); color: var(--ink); }
+    #modeList button.active .m-desc { color: var(--mid); }
+    #modeList button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #modeList button.active:disabled { opacity: 0.85; }
+    #modeNote { font-size: 10px; color: var(--dim); margin-top: 8px; visibility: hidden; }
+
+    /* The COLOR palette (only visible in Paint mode) */
+    #palette { display: none; margin-top: 10px; }
+    #palette.show { display: block; }
+    #swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    #swatches button {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 3px 6px 3px 3px;
+      background: transparent;
+      color: var(--mid);
+      border: 1px solid var(--line2);
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+    }
+    #swatches button.active { border-color: var(--accent); color: var(--fg); }
+    #swatches button.done { opacity: 0.45; }
+    /* The picture gallery under the board (only visible in Paint mode) */
+    #gallery { grid-area: gallery; display: none; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px;
+               width: 0; min-width: 100%; /* (so a long row of thumbnails never widens the page layout) */ }
+    #gallery.show { display: flex; }
+    #gallery .thumb {
+      position: relative;
+      padding: 2px;
+      background: transparent;
+      border: 1px solid var(--line2);
+      border-radius: 6px;
+      cursor: pointer;
+      line-height: 0;
+    }
+    #gallery .thumb canvas { width: 40px; height: 40px; border-radius: 3px; opacity: 0.8; }
+    #gallery .thumb.active { border-color: var(--accent); }
+    #gallery .thumb.active canvas { opacity: 1; }
+    #gallery .thumb:disabled { opacity: 0.45; cursor: not-allowed; }
+    #gallery .thumb.active:disabled { opacity: 0.9; }
+    #gallery .thumb.done::after {
+      content: "\2713";
+      position: absolute; top: -5px; right: -5px;
+      width: 14px; height: 14px; line-height: 14px;
+      border-radius: 50%;
+      background: #22c55e; color: #fff;
+      font-size: 10px; font-weight: bold; text-align: center;
+    }
+    #swatches .sw {
+      width: 20px; height: 20px; flex: none;
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: bold; color: #fff;
+      text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+    }
+
+    /* "How to play" list under the board: one instruction per line */
+    #hint {
+      margin: 14px 0 0;
+      padding: 0 12px;
+      font-size: 15px;
+      line-height: 1.9;
+      color: var(--guide);
+      text-align: left;          /* every line starts at the same left edge */
+    }
+    #hint .line { display: block; padding-left: 1.5em; text-indent: -1.5em; }  /* wrapped lines stay tidy */
+    #hint kbd {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 1px 7px;
+      margin: 0 1px;
+      color: var(--fg);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+    }
+    #hint .note { color: var(--hint); font-size: 13px; }
+
+    /* Phones: stack everything in one column, modes under the board */
+    @media (max-width: 640px) {
+      #layout {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "hud" "styles" "sizes" "board" "modes" "gallery";
+      }
+      #hud { width: 90vw; max-width: 400px; justify-self: center; }
+      canvas { justify-self: center; }
+      #modes { width: 90vw; max-width: 400px; justify-self: center; margin-top: 10px; box-sizing: border-box; }
+      #modeList { flex-direction: row; }
+      #modeList button { flex: 1; }
+      #swatches { grid-template-columns: repeat(5, 1fr); }
+      #gallery { width: 90vw; max-width: 400px; justify-self: center; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ============================================================
+       PART 2: HTML (the structure)
+       The style and mode buttons are created by JavaScript.
+       ============================================================ -->
+  <div id="topbar">
+    <button id="soundToggle" type="button" aria-label="Sound on or off"></button>
+    <button id="pageToggle" type="button" aria-label="Switch between light and dark mode"></button>
+  </div>
+
+  <h1>SNAKE</h1>
+
+  <div id="layout">
+    <div id="hud">
+      <span>Score: <b id="score">0</b></span>
+      <span>Best: <b id="best">0</b></span>
+    </div>
+
+    <div id="styles"></div>
+    <div id="sizes"></div>
+
+    <canvas id="game" width="400" height="400"></canvas>
+
+    <aside id="modes">
+      <div class="side-title">MODE</div>
+      <div id="modeList"></div>
+      <div id="modeNote">Locked during a run (Esc to pause)</div>
+      <div id="palette">
+        <div class="side-title">COLOR (Q / E)</div>
+        <div id="swatches"></div>
+      </div>
+    </aside>
+
+    <div id="gallery"></div>
+  </div>
+
+  <div id="hint">
+    <span class="line"><kbd>Arrow keys</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> &ndash; move the snake</span>
+    <span class="line"><kbd>Space</kbd> &ndash; start or resume</span>
+    <span class="line"><kbd>Esc</kbd> &ndash; pause (press again to end the run)</span>
+    <span class="line"><kbd>1</kbd> <kbd>2</kbd> &ndash; snake style</span>
+    <span class="line"><kbd>3</kbd> to <kbd>6</kbd> &ndash; game mode</span>
+    <span class="line"><kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd> &ndash; board size (Small / Medium / Big)</span>
+    <span class="line"><kbd>M</kbd> &ndash; sound on / off</span>
+    <span class="line">Paint mode: <kbd>Q</kbd> <kbd>E</kbd> &ndash; change color &middot; <kbd>[</kbd> <kbd>]</kbd> &ndash; change picture</span>
+    <span class="line note">On a phone: swipe on the board to steer, tap it to start or resume</span>
+  </div>
+
+  <!-- ============================================================
+       PART 3: JavaScript (the brain)
+       ============================================================ -->
+  <script>
+    // ---------- 3.1 SETUP ----------
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const bestEl = document.getElementById("best");
+    const stylesEl = document.getElementById("styles");
+    const modeListEl = document.getElementById("modeList");
+    const modeNoteEl = document.getElementById("modeNote");
+    const paletteEl = document.getElementById("palette");
+    const swatchesEl = document.getElementById("swatches");
+    const galleryEl = document.getElementById("gallery");
+    const sizesEl = document.getElementById("sizes");
+
+    // ---- SOUND ----
+    // All sounds are made by the browser itself (Web Audio), so no sound files are needed.
+    //  eat    = crunch      (the snake eats an apple)
+    //  paint  = soft chime  (you finish ONE number color)
+    //  over   = bloop drop  (you crash into a wall or yourself)
+    //  streak = soft chime run, 5 rising notes (you finish the WHOLE picture)
+    let audio = null;
+    let soundOn = true;
+    const soundToggleEl = document.getElementById("soundToggle");
+    function audioCtx() {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+      return audio;
+    }
+    const SFX_VOL = 0.25;                                  // overall loudness (kept gentle)
+    const semis = n => 440 * Math.pow(2, n / 12);          // note number -> pitch in Hz
+    // One tone that fades in and out quickly (no clicks)
+    function tone(type, f0, f1, dur, vol, at = 0) {
+      const a = audioCtx(), t = a.currentTime + at;
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol * SFX_VOL, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(a.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    }
+    // A short burst of filtered noise (the "crunch")
+    function noise(dur, vol, freq, at = 0) {
+      const a = audioCtx(), t = a.currentTime + at;
+      const buf = a.createBuffer(1, Math.ceil(a.sampleRate * dur), a.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+      const src = a.createBufferSource(); src.buffer = buf;
+      const f = a.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = 1.2;
+      const g = a.createGain(); g.gain.value = vol * SFX_VOL;
+      src.connect(f).connect(g).connect(a.destination);
+      src.start(t);
+    }
+    const chime = k => tone("triangle", semis(7 + 2 * k), semis(7 + 2 * k), 0.18, 0.5);
+    const sfx = {
+      eat()    { noise(0.09, 1.0, 1800); noise(0.07, 0.8, 1200, 0.07); tone("sine", 180, 90, 0.1, 0.6); },
+      paint()  { chime(0); },
+      over()   { tone("sine", 440, 110, 0.45, 0.9); },     // "bloop drop": one soft sliding drop
+      streak() { for (let k = 0; k < 5; k++) setTimeout(() => chime(k), k * 140); }
+    };
+    // Play a sound, but never let a sound problem break the game
+    function playSfx(name) {
+      if (!soundOn) return;
+      try { sfx[name](); } catch (e) {}
+    }
+    function setSound(on) {
+      soundOn = on;
+      soundToggleEl.textContent = "\u266A " + (on ? "Sound" : "Muted");
+      soundToggleEl.classList.toggle("off", !on);
+      try { localStorage.setItem("snakeSound", on ? "on" : "off"); } catch (e) {}
+    }
+    soundToggleEl.addEventListener("click", () => {
+      setSound(!soundOn);
+      if (soundOn) playSfx("paint");     // a little confirmation chime
+      soundToggleEl.blur();
+    });
+    try { setSound(localStorage.getItem("snakeSound") !== "off"); } catch (e) { setSound(true); }
+
+    // ---- LIGHT / DARK PAGE ----
+    const pageToggleEl = document.getElementById("pageToggle");
+    function setPage(key) {
+      document.documentElement.dataset.page = key;
+      pageToggleEl.textContent = (key === "light") ? "\u2600 Light" : "\u263E Dark";
+      try { localStorage.setItem("snakePage", key); } catch (e) {}
+    }
+    pageToggleEl.addEventListener("click", () => {
+      setPage(document.documentElement.dataset.page === "light" ? "dark" : "light");
+      pageToggleEl.blur();   // so pressing Space doesn't click it again
+    });
+    let savedPage = "dark";
+    try { savedPage = localStorage.getItem("snakePage") === "light" ? "light" : "dark"; } catch (e) {}
+    setPage(savedPage);
+
+    // ---- BOARD SIZES: small / medium / big ----
+    //  cols x rows = number of grid squares, tile = pixels per square.
+    //  baseMs / paintMs = starting speed (milliseconds per step) for normal modes / Paint.
+    //  demoW = length of the title-screen demo snake, paintY = the row the Paint finger starts on.
+    const SIZES = {
+      small:  { label: "Small",  cols: 10, rows: 12, tile: 32, baseMs: 160, paintMs: 160, demoW: 6,  paintY: 11 },
+      medium: { label: "Medium", cols: 20, rows: 20, tile: 20, baseMs: 150, paintMs: 140, demoW: 8,  paintY: 18 },
+      big:    { label: "Big",    cols: 40, rows: 40, tile: 16, baseMs: 130, paintMs: 100, demoW: 14, paintY: 37 }
+    };
+    let sizeKey = "medium";
+    let TILE = 20;                      // size of one grid square in pixels
+    let COLS = 20;
+    let ROWS = 20;
+    const TAU = Math.PI * 2;            // a full circle in radians
+    let BASE_R = TILE / 2 - 0.8;        // thickness (radius) of the snake's body
+    let K = 1;                          // scales little pixel details (glow, shine...) with the tile size
+    let UI = 1;                         // scales text and fireworks with the board width
+
+    // Change the board size: resizes the canvas and recomputes everything that depends on it
+    function configureSize(key) {
+      const z = SIZES[key];
+      sizeKey = key;
+      TILE = z.tile; COLS = z.cols; ROWS = z.rows;
+      canvas.width = COLS * TILE;
+      canvas.height = ROWS * TILE;
+      BASE_R = TILE / 2 - 0.8;
+      K = TILE / 20;
+      UI = canvas.width / 400;
+    }
+    // Best scores are kept per mode AND per size (medium keeps the old key)
+    function bestKey(mode) { return "snakeBest_" + mode + (sizeKey === "medium" ? "" : "_" + sizeKey); }
+
+    // ---------- 3.2 STYLES (how the snake looks) ----------
+    const THEMES = {
+      neon:   { label: "Neon",    accent: "#22d3ee", bg: "#06060f", grid: "rgba(34,211,238,0.17)",  food: "#f472b6", tongue: "#f0abfc" },
+      bubble: { label: "Bubbles", accent: "#c084fc", bg: "#1e1433", grid: "rgba(255,255,255,0.12)", food: "#fde047", tongue: "#fb7185" }
+    };
+    let themeKey = "neon";
+
+    // ---------- 3.3 MODES (how the game plays) ----------
+    //  walls: touching a wall ends the game (the original rules)
+    //  wrap:  walls are portals: leave one side, appear on the opposite side
+    //  flip:  every time you eat, your tail becomes your head
+    //  paint: paint-by-number. The snake is the finger: pick a color, then
+    //         glide over the blocks with that number to fill them in
+    const MODES = {
+      walls: { label: "Classic", desc: "Hit a wall and it's over" },
+      wrap:  { label: "Portal",  desc: "Exit one side, enter the other" },
+      flip:  { label: "Flip",    desc: "Eat to swap head and tail" },
+      paint: { label: "Paint",   desc: "Color the numbered blocks" }
+    };
+    let modeKey = "walls";
+    // Portal and Paint both have open walls (leave one side, appear on the other)
+    const wraps = () => modeKey === "wrap" || modeKey === "paint";
+
+    // ---------- 3.4 GAME STATE ----------
+    let snake;          // grid positions {x, y}; snake[0] is the head
+    let prevSnake;      // where each segment was BEFORE the last step (for smooth motion)
+    let direction;      // direction the head last moved
+    let nextDirection;  // direction the player asked for
+    let food;
+    let score = 0;
+    let best = 0;
+    let state = "ready"; // "ready", "playing" or "over"
+    let stepMs;          // milliseconds per grid step (smaller = faster)
+    let deathReason = "";
+    let crashSpot = null;
+    let paused = false;       // true while a run is paused (Esc); the progress is kept
+    let pauseAt = 0;          // when the pause started
+    let pendingFlip = false;  // Flip mode: true right after eating, until the swap happens
+    let flipTime = -99999;    // when the last swap happened (drives the swap animation)
+    // ---- Flip mode tuning: change these numbers to taste ----
+    const FLIP_ANIM_MS = 500;   // how long the whole swap animation lasts (milliseconds)
+    const FLIP_PAUSE_MS = 100;  // how long the snake holds still before moving again (milliseconds)
+    const FLIP_WAVE_PX = 1.0;   // how strongly the body ripples sideways (pixels; bigger = wilder)
+    const FLIP_BULGE = 0.15;    // how much the body swells where the head travels (0.15 = 15% thicker)
+    const FLIP_POP = 0.15;      // how much the new head swells when it arrives
+
+    // ---------- 3.4b PAINT MODE: THE PICTURES ----------
+    // Every picture is 20 rows of 20 characters (one character = one block of the board):
+    //   .      = blank paper (nothing to paint)
+    //   1 - 9, then a, b, c ... = the number of the color to paint that block with
+    // `colors` is that picture's own palette, in order: the first color is number 1, and so on.
+    // To add your own picture: copy one entry, change its name, colors and rows,
+    // and keep every row exactly 20 characters long.
+    const PICTURES = [
+      {
+        name: "Cozy House",
+        colors: [["Yellow", "#facc15"], ["Green", "#22a35a"], ["Red", "#e0483f"], ["Brown", "#9a6234"], ["Blue", "#3b82f6"], ["Gray", "#9ca3af"], ["Pink", "#f472b6"]],
+        rows: [
+          "....................",
+          "..............11....",
+          ".............1111...",
+          ".............1111...",
+          "..........66..11....",
+          "..........66........",
+          ".......44.66........",
+          ".....4444446........",
+          "....44444444....22..",
+          "...4444444444..2222.",
+          "...3333333333.222222",
+          "...3553333553.222222",
+          "...3553333553...44..",
+          "...3333443333...44..",
+          "...3333443333...44..",
+          "...3333443333...44..",
+          "22227222272222272222",
+          "22222212222212222222",
+          "....................",
+          "...................."
+        ]
+      },
+      {
+        name: "Stone Castle",
+        colors: [["Stone", "#9ca3af"], ["Dark stone", "#6b7280"], ["Red roof", "#dc2626"], ["Gold", "#fbbf24"], ["Wood", "#92400e"], ["Navy", "#1e3a8a"], ["Grass", "#22a35a"]],
+        rows: [
+          "....................",
+          "..24.....33.....42..",
+          "..24....3333....42..",
+          "..33...333333...33..",
+          ".3333...1111...3333.",
+          "333333..1441..333333",
+          ".1111...1441...1111.",
+          ".1111.11111111.1111.",
+          ".1111.11111111.1111.",
+          ".1611.11111111.1161.",
+          ".1611.16111161.1161.",
+          ".1111.16111161.1111.",
+          ".1111.11155111.1111.",
+          ".1111.11555511.1111.",
+          ".1111.11555511.1111.",
+          ".1111.11555511.1111.",
+          ".2222.22555522.2222.",
+          "77777777777777777777",
+          "77777777777777777777",
+          "...................."
+        ]
+      },
+      {
+        name: "Fairy Castle",
+        colors: [["Pink", "#f9a8d4"], ["Lilac", "#e9d5ff"], ["Purple", "#a855f7"], ["Gold", "#fbbf24"], ["Plum", "#6b21a8"], ["Grass", "#4ade80"]],
+        rows: [
+          "....................",
+          ".........44.........",
+          "..4......33....4....",
+          "........3333........",
+          ".......333333.......",
+          ".....4..1111..4.....",
+          ".....3..1111..3...4.",
+          ".4..333.1111.333....",
+          "...33333144133333...",
+          "....111.1441.111....",
+          "....111.1111.111....",
+          "....141.1111.141....",
+          "....141.1111.141....",
+          "22221112155121112222",
+          "22221112555521112222",
+          "22221112555521112222",
+          "22222222555522222222",
+          "66666666666666666666",
+          "66666666666666666666",
+          "...................."
+        ]
+      },
+      {
+        name: "Dragon",
+        colors: [["Green", "#22c55e"], ["Dark green", "#15803d"], ["Belly", "#fde68a"], ["Purple", "#a855f7"], ["Orange", "#f97316"], ["Yellow", "#facc15"], ["Black", "#111827"], ["White", "#ffffff"]],
+        rows: [
+          "................2...",
+          "...........2...2....",
+          "............2111....",
+          ".......4....11711255",
+          "...4..44....11111166",
+          "...444444..111118855",
+          "...444444..11111....",
+          "....444444.111......",
+          "....444442.111......",
+          "....444444.111......",
+          "......11121111......",
+          "2...111121111.......",
+          "12..111131111.......",
+          "11111333333311......",
+          ".111133333331.......",
+          "....133333331.......",
+          ".....1113111........",
+          ".....11...11........",
+          "....................",
+          "...................."
+        ]
+      },
+      {
+        name: "Wizard Tower",
+        colors: [["Moon", "#fde68a"], ["Star gold", "#fbbf24"], ["Stone", "#9ca3af"], ["Shade", "#6b7280"], ["Purple", "#7c3aed"], ["Light", "#f97316"], ["Door", "#92400e"], ["Grass", "#22a35a"]],
+        rows: [
+          "...........5........",
+          ".......2..5.2..1....",
+          "..2......55...11....",
+          ".........55...11....",
+          "........5555..11....",
+          ".....2..5555...111..",
+          ".......555555.......",
+          "......444444442.....",
+          ".......333344.......",
+          ".2.....333344.....2.",
+          ".......336644.......",
+          ".......336644.......",
+          ".......336644.......",
+          ".......333344.......",
+          ".......337744.......",
+          ".......337744.......",
+          ".......337744.......",
+          "..8888888888888888..",
+          "88888888888888888888",
+          "88888888888888888888"
+        ]
+      },
+      {
+        name: "Unicorn",
+        colors: [["White", "#ffffff"], ["Shade", "#d1d5db"], ["Pink", "#f9a8d4"], ["Gold horn", "#fbbf24"], ["Red", "#ef4444"], ["Orange", "#f97316"], ["Yellow", "#facc15"], ["Green", "#22c55e"], ["Blue", "#3b82f6"], ["Purple", "#a855f7"], ["Black", "#111827"]],
+        rows: [
+          "................4...",
+          "...............4....",
+          "..........1....4....",
+          "..........31..4.....",
+          ".....5555....44.....",
+          ".....6666.1111......",
+          ".....6661111111.....",
+          ".....77711111111....",
+          "....777711111b111...",
+          "....8888111111111...",
+          "...888881111111111..",
+          "...999991111111311..",
+          "..99999111111111133.",
+          "...aaaaa111111211...",
+          "...aaaaa11112..2....",
+          "...5555511122.......",
+          "...5555511122.......",
+          "...6666611122.......",
+          "......6611122.......",
+          "...........22......."
+        ]
+      },
+      {
+        name: "Toadstool",
+        colors: [["Red", "#dc2626"], ["White", "#ffffff"], ["Tan", "#fcd9a8"], ["Shade", "#c8925a"], ["Grass", "#22a35a"], ["Dark green", "#15803d"], ["Pink", "#f472b6"], ["Yellow", "#facc15"]],
+        rows: [
+          "....................",
+          "....................",
+          "....................",
+          "....................",
+          "......11111122......",
+          "....111122221111....",
+          "...11111111111111...",
+          "..1112211111122211..",
+          "..1111111111122211..",
+          ".111111111111111111.",
+          "...44444444444444...",
+          ".......4444444......",
+          ".......3333344......",
+          ".......3333344......",
+          ".......3333344......",
+          "...7...3333344..8...",
+          ".6.66..3333344.66.6.",
+          "55555555555555555555",
+          "55555555555555555555",
+          "...................."
+        ]
+      },
+      {
+        name: "Parrot",
+        colors: [["Red", "#dc2626"], ["Blue", "#2563eb"], ["Yellow", "#facc15"], ["White", "#ffffff"], ["Black", "#111827"], ["Branch", "#92400e"], ["Leaf", "#22a35a"], ["Beak", "#d1d5db"]],
+        rows: [
+          "....................",
+          "....................",
+          ".........111........",
+          "........114588......",
+          "........114418......",
+          ".......1111158......",
+          ".......12111........",
+          "......1222111.......",
+          "......1332111.......",
+          "......1332111.......",
+          "......2222211.......",
+          "......1222111..777..",
+          ".......22211..77777.",
+          "......122211..77777.",
+          "......12515...7777..",
+          ".666661222666666666.",
+          ".666661222666666666.",
+          "......1222..........",
+          "......1222..........",
+          "......1332.........."
+        ]
+      },
+      {
+        name: "Owl",
+        colors: [["Brown", "#92400e"], ["Dark brown", "#78350f"], ["Tan", "#fcd9a8"], ["Yellow", "#facc15"], ["Black", "#111827"], ["Orange", "#f97316"], ["Leaf", "#22a35a"]],
+        rows: [
+          "....................",
+          "....................",
+          "....22........22....",
+          "....222......222....",
+          "....222211112222....",
+          "....234431134432....",
+          "....344443344443....",
+          "....345543345543....",
+          "....345543345543....",
+          "....134436634431....",
+          "....222136631222....",
+          "....222333333222....",
+          "....222311113222....",
+          "....222333333222....",
+          "....222311113222....",
+          ".....2133333312.....",
+          "7....2.311113.2....7",
+          ".77....663366....77.",
+          "22222222222222222222",
+          "22222222222222222222"
+        ]
+      },
+      {
+        name: "Cat",
+        colors: [["Orange", "#f97316"], ["Stripes", "#c2410c"], ["White", "#ffffff"], ["Pink", "#f9a8d4"], ["Green", "#22c55e"], ["Black", "#111827"], ["Red", "#dc2626"], ["Gold bell", "#fbbf24"]],
+        rows: [
+          "....................",
+          "....11........11....",
+          "....141..22..141....",
+          "....141212212141....",
+          "....111111111111....",
+          ".....1111111111.....",
+          ".....1561111651.....",
+          "..66.1111111111.66..",
+          ".....1113443111.....",
+          "..66.1133663311.66..",
+          ".......133331.......",
+          "......77777777......",
+          "......11188111......",
+          ".....1113333111.....",
+          "....221333333122.2..",
+          "....111333333111..1.",
+          "....221333333122..1.",
+          ".....1133333311...1.",
+          "......33333333..11..",
+          "......33111133......"
+        ]
+      },
+      {
+        name: "Goldfish",
+        colors: [["Orange", "#f97316"], ["Fins", "#dc2626"], ["Yellow", "#fbbf24"], ["White", "#ffffff"], ["Black", "#111827"], ["Bubbles", "#38bdf8"], ["Seaweed", "#22a35a"], ["Sand", "#fcd34d"]],
+        rows: [
+          "....................",
+          "...............6....",
+          ".................6..",
+          "..........2.........",
+          ".........222....6...",
+          ".......1111111....6.",
+          "..2...111112111.....",
+          "..22.11311121451....",
+          "..22211111121111....",
+          "..22.13133333315....",
+          "..2...113333333.....",
+          ".......1133333..7...",
+          "...7......22....7...",
+          "...7......2......7..",
+          "....7............7..",
+          "....7...........7...",
+          "...7............7...",
+          "...7.............7..",
+          "88888878888888888888",
+          "88888888888888888888"
+        ]
+      },
+      {
+        name: "Butterfly",
+        colors: [["Blue", "#3b82f6"], ["Purple", "#a855f7"], ["Pink", "#ec4899"], ["Orange", "#f97316"], ["Yellow", "#facc15"], ["White", "#ffffff"], ["Body", "#44403c"]],
+        rows: [
+          ".......7....7.......",
+          ".......7....7.......",
+          ".....1..7..7..1.....",
+          "...11111.77.11111...",
+          "..1112211771122111..",
+          ".111662217712266111.",
+          ".112222227722222211.",
+          ".111223217712322111.",
+          "..1112211771122111..",
+          "...11111.77.11111...",
+          ".....14..77..41.....",
+          "....444447744444....",
+          "...44455477455444...",
+          "...44535577553544...",
+          "...44535577553544...",
+          "...44455477455444...",
+          "....44444..44444....",
+          "......4......4......",
+          "....................",
+          "...................."
+        ]
+      },
+      {
+        name: "Rocket",
+        colors: [["White", "#f3f4f6"], ["Gray", "#9ca3af"], ["Red", "#ef4444"], ["Window", "#38bdf8"], ["Rim", "#1f2937"], ["Orange", "#f97316"], ["Yellow", "#facc15"], ["Planet", "#8b5cf6"], ["Gold", "#fbbf24"]],
+        rows: [
+          "....................",
+          ".........33.9.......",
+          "..9.....3333...888.9",
+          "........3333..88899.",
+          ".....9.333333.89988.",
+          ".......111111998888.",
+          ".......255559..888..",
+          ".......254452.......",
+          "....9..544445.......",
+          ".......254452.......",
+          ".......255552....9..",
+          ".......333333.......",
+          ".9....32111123......",
+          ".....3321111233.....",
+          "....333211112339....",
+          "...3333.2222.3333...",
+          "...33...6776...33...",
+          ".........66.........",
+          ".........66.........",
+          "...................."
+        ]
+      },
+      {
+        name: "Sailboat",
+        colors: [["Sun", "#facc15"], ["Mast", "#451a03"], ["Red", "#ef4444"], ["White", "#ffffff"], ["Pink sail", "#fecaca"], ["Hull", "#92400e"], ["Sea", "#2563eb"], ["Foam", "#7dd3fc"]],
+        rows: [
+          "....................",
+          "..1111..............",
+          "..1111....233.......",
+          ".111111...23........",
+          "..1111....2.........",
+          "..1111....24........",
+          "..........244.......",
+          "........5.2444......",
+          ".......55.2444......",
+          ".......55.24444.....",
+          "......555.244444....",
+          ".....5555.2444444...",
+          "..........2.........",
+          "...333333333333333..",
+          "....6666666666666...",
+          ".....66666666666....",
+          "....................",
+          "88777788777788777788",
+          "77777777777777777777",
+          "77788777788777788777"
+        ]
+      },
+      {
+        name: "Lighthouse",
+        colors: [["Red", "#dc2626"], ["White", "#ffffff"], ["Lamp", "#facc15"], ["Light beam", "#fcd34d"], ["Roof", "#374151"], ["Rock", "#78716c"], ["Sea", "#2563eb"], ["Door", "#92400e"], ["Window", "#38bdf8"]],
+        rows: [
+          "....................",
+          ".........55.........",
+          "444....555555....444",
+          "444444..3333..444444",
+          "444444..3333..444444",
+          "444...55555555...444",
+          "........1111........",
+          "........1111........",
+          "........2222........",
+          ".......222222.......",
+          ".......119911.......",
+          ".......111111.......",
+          ".......222222.......",
+          "......22222222......",
+          "......11188111......",
+          "......11188111......",
+          "......22288222......",
+          "77776666666666667777",
+          "77666666666666666677",
+          "77666666666666666677"
+        ]
+      },
+      {
+        name: "Sunflower",
+        colors: [["Yellow", "#facc15"], ["Gold", "#f59e0b"], ["Brown", "#78350f"], ["Seeds", "#451a03"], ["Green", "#22a35a"], ["Dark green", "#15803d"], ["Terracotta", "#c2410c"]],
+        rows: [
+          "....................",
+          "....................",
+          "........1122........",
+          "......22112211......",
+          "......22333311......",
+          ".....1133443322.....",
+          "....111344443222....",
+          ".....1134444311.....",
+          "....222344443111....",
+          ".....2233443311.....",
+          "......11333322......",
+          "......11221122......",
+          "........2211........",
+          "......5..55.........",
+          "......55.55...6.....",
+          "......55555.666.....",
+          ".....7777557777.....",
+          "......7777777.......",
+          ".......777777.......",
+          "...................."
+        ]
+      },
+      {
+        name: "Penguin",
+        colors: [["Black", "#1f2937"], ["White", "#ffffff"], ["Orange", "#f97316"], ["Scarf", "#dc2626"], ["Ice", "#7dd3fc"], ["Cheeks", "#f9a8d4"]],
+        rows: [
+          "....................",
+          "....................",
+          ".......111111...5...",
+          "..5...11111111...5..",
+          "......12211221......",
+          "......21222212......",
+          "......22233222......",
+          "...5.1622332261.5...",
+          ".....1112222111...5.",
+          ".....1444444441.....",
+          ".5..114444444411....",
+          "...11112244224111...",
+          "..1111222222241111..",
+          ".111.1222222221.151.",
+          ".....1122222211.....",
+          ".....1122222211.....",
+          "......12222221......",
+          ".......122221.......",
+          "55555533355333555555",
+          "55555555555555555555"
+        ]
+      },
+      {
+        name: "Fox",
+        colors: [["Orange", "#f97316"], ["Dark orange", "#c2410c"], ["White", "#ffffff"], ["Black", "#111827"], ["Amber", "#fbbf24"], ["Bandana", "#2563eb"]],
+        rows: [
+          "..4..............4..",
+          "..44............44..",
+          "...11..........11...",
+          "...1111......1111...",
+          "...12111111111121...",
+          "...12111111111121...",
+          "...11112111121111...",
+          "...11121111112111...",
+          "...11155111155111...",
+          "...11114111141111...",
+          "...14111111111141...",
+          "...33333333333333...",
+          "...13333333333331...",
+          "....133333333331....",
+          ".....1333333331.....",
+          "...66613344331666...",
+          ".....6666666666.....",
+          "......66366366......",
+          "........6666........",
+          ".........66........."
+        ]
+      },
+      {
+        name: "Whale",
+        colors: [["Blue", "#2563eb"], ["Dark blue", "#1e3a8a"], ["Belly", "#bfdbfe"], ["Black", "#111827"], ["Spray", "#7dd3fc"], ["Sea", "#0ea5e9"], ["White", "#ffffff"]],
+        rows: [
+          "....................",
+          "....................",
+          "..........55.55.....",
+          ".........5..5..5....",
+          "...........555......",
+          "............5.......",
+          "1..1........5.......",
+          "1111......1.........",
+          "1111.11111111111....",
+          "11111111111111111...",
+          "111111111111117411..",
+          "111111111111111111..",
+          "...111111111111112..",
+          "...111111111112221..",
+          "....3333333333333...",
+          ".....33333333333....",
+          "77666776667766677666",
+          "66666666666666666666",
+          "66677666776667766677",
+          "66666666666666666666"
+        ]
+      },
+      {
+        name: "Treasure Chest",
+        colors: [["Wood", "#92400e"], ["Dark wood", "#451a03"], ["Gold", "#f59e0b"], ["Coins", "#facc15"], ["Keyhole", "#111827"], ["Ruby", "#dc2626"], ["Emerald", "#16a34a"], ["Sapphire", "#2563eb"]],
+        rows: [
+          "....................",
+          "....................",
+          ".........4..........",
+          "........444.........",
+          ".........4..........",
+          "..4.................",
+          ".444................",
+          "..4...11111111......",
+          "....331111111133....",
+          "....331111111133....",
+          "...13311144111331...",
+          "...23322254222332...",
+          "...13311144111331...",
+          "...13311111111331...",
+          "88.23322222222332.77",
+          "88.13311111111331.77",
+          "...13311111111331...",
+          "66.2332222222233443.",
+          "66.............43444",
+          "................444."
+        ]
+      }
+    ];
+    // Pictures are drawn on a 20x20 grid. Other sizes get a scaled copy:
+    //  big   = every block becomes 2x2 blocks (40x40)
+    //  small = every 2x2 blocks become one (10x10), centered on the 10x12 board
+    function scaledPicture(pic) {
+      if (sizeKey === "medium") return pic;
+      const grid = pic.rows.map(r => [...r].map(ch => ch === "." ? 0 : parseInt(ch, 36)));
+      let out;
+      if (sizeKey === "big") {
+        out = [];
+        grid.forEach(row => {
+          const wide = [];
+          row.forEach(c => wide.push(c, c));
+          out.push(wide, wide.slice());
+        });
+      } else {
+        const freq = new Array(pic.colors.length + 1).fill(0);
+        grid.forEach(r => r.forEach(c => { if (c) freq[c]++; }));
+        const small = [];
+        for (let by = 0; by < 10; by++) {
+          const row = [];
+          for (let bx = 0; bx < 10; bx++) {
+            const cnt = {}; let n = 0;
+            for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+              const c = grid[by * 2 + dy][bx * 2 + dx];
+              if (c) { cnt[c] = (cnt[c] || 0) + 1; n++; }
+            }
+            let pick = 0;
+            // keep a block if at least 2 of the 4 were painted, or if it is a rare accent color
+            if (n >= 2 || (n === 1 && freq[Number(Object.keys(cnt)[0])] <= 16)) {
+              let bestN = -1;
+              for (const k in cnt) {
+                const c = Number(k);
+                if (cnt[c] > bestN || (cnt[c] === bestN && freq[c] < freq[pick])) { pick = c; bestN = cnt[c]; }
+              }
+            }
+            row.push(pick);
+          }
+          small.push(row);
+        }
+        out = [new Array(10).fill(0)].concat(small, [new Array(10).fill(0)]);
+      }
+      // drop colors that disappeared and renumber the rest
+      const used = new Set();
+      out.forEach(r => r.forEach(c => { if (c) used.add(c); }));
+      const map = {}, colors = [];
+      pic.colors.forEach((col, i) => { if (used.has(i + 1)) { colors.push(col); map[i + 1] = colors.length; } });
+      return { name: pic.name, colors, rows: out.map(r => r.map(c => c ? map[c].toString(36) : ".").join("")) };
+    }
+
+    let picIdx = 0;             // which picture is on the board
+    let PALETTE = [null];       // the current picture's colors: { name, hex } (index 0 is unused)
+    let target = [];            // target[y][x] = color number of that block (0 = blank paper)
+    let totalCells = 0;
+    const doneSet = new Set();  // names of the pictures you have completed
+
+    // Remember the last picture and which ones you finished (try/catch: storage can be blocked)
+    try {
+      const savedPic = Number(localStorage.getItem("snakePaintPic"));
+      if (Number.isInteger(savedPic) && savedPic >= 0 && savedPic < PICTURES.length) picIdx = savedPic;
+      JSON.parse(localStorage.getItem("snakePaintDone") || "[]").forEach(n => doneSet.add(n));
+    } catch (e) { /* fine without it */ }
+
+    let painted;        // painted[y][x] = true once that block is filled in
+    let paintedAt;      // when each block was painted (for the little "pop" animation)
+    let remaining;      // remaining[c] = blocks of color c still to paint
+    let paintedCount = 0;
+    let selColor = 1;   // the color number the finger is carrying
+    let playStart = 0;  // when the run started (for the completion time)
+    let won = false;    // true when the picture was completed
+    let endTitle = "GAME OVER";
+    let endLine = "";
+    const swatchEls = [];
+
+    function showScore() {
+      scoreEl.textContent = (modeKey === "paint") ? paintedCount + "/" + totalCells : score;
+    }
+
+    // Start a fresh, unpainted picture
+    function initPaint() {
+      painted = target.map(row => row.map(() => false));
+      paintedAt = target.map(row => row.map(() => -99999));
+      remaining = new Array(PALETTE.length).fill(0);
+      target.forEach(row => row.forEach(c => { if (c) remaining[c]++; }));
+      paintedCount = 0;
+      selColor = 1;
+      clearFx();
+      updatePalette();
+      showScore();
+    }
+
+    function selectColor(c) {
+      if (!remaining || remaining[c] === 0) return;  // a finished color can't be picked
+      selColor = c;
+      updatePalette();
+    }
+
+    // Q / E (dir = -1 / +1): jump to the previous / next color that still has blocks left
+    function cycleColor(dir) {
+      const n = PALETTE.length - 1;                      // how many colors this picture has
+      for (let k = 1; k <= n; k++) {
+        const c = ((selColor - 1 + dir * k + n * 20) % n) + 1;
+        if (remaining[c] > 0) { selectColor(c); return; }
+      }
+    }
+
+    function updatePalette() {
+      if (!swatchEls.length || !remaining) return;
+      for (let c = 1; c < PALETTE.length; c++) {
+        const b = swatchEls[c];
+        b.classList.toggle("active", c === selColor);
+        b.classList.toggle("done", remaining[c] === 0);
+        b.title = PALETTE[c].name;
+        b.querySelector(".sl").textContent = remaining[c] > 0 ? remaining[c] : "\u2713";   // blocks left, or a check mark
+      }
+    }
+
+    // Rebuild the color buttons for the current picture
+    function buildPalette() {
+      swatchesEl.innerHTML = "";
+      swatchEls.length = 0;
+      for (let c = 1; c < PALETTE.length; c++) {
+        const b = document.createElement("button");
+        const sw = document.createElement("span");
+        sw.className = "sw";
+        sw.style.background = PALETTE[c].hex;
+        const n = parseInt(PALETTE[c].hex.slice(1), 16);
+        if ((0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.75) {
+          sw.style.color = "#1f2937"; sw.style.textShadow = "none";   // dark number on a light color
+        }
+        sw.textContent = c;
+        const sl = document.createElement("span");
+        sl.className = "sl";
+        b.append(sw, sl);
+        b.addEventListener("click", () => { selectColor(c); b.blur(); });
+        swatchesEl.appendChild(b);
+        swatchEls[c] = b;
+      }
+    }
+
+    // ---- picture gallery ----
+    function buildGallery() {
+      galleryEl.innerHTML = "";
+      PICTURES.forEach((pic, i) => {
+        const b = document.createElement("button");
+        b.className = "thumb";
+        b.title = pic.name;
+        const c = document.createElement("canvas");
+        c.width = c.height = 40;                         // 2 pixels per block
+        const g = c.getContext("2d");
+        g.fillStyle = "#f4efe3";
+        g.fillRect(0, 0, 40, 40);
+        pic.rows.forEach((row, y) => [...row].forEach((ch, x) => {
+          if (ch === ".") return;
+          g.fillStyle = pic.colors[parseInt(ch, 36) - 1][1];
+          g.fillRect(x * 2, y * 2, 2, 2);
+        }));
+        b.appendChild(c);
+        b.addEventListener("click", () => { selectPicture(i); b.blur(); });
+        galleryEl.appendChild(b);
+      });
+    }
+
+    function markGallery() {
+      galleryEl.querySelectorAll(".thumb").forEach((b, i) => {
+        b.classList.toggle("active", i === picIdx);
+        b.classList.toggle("done", doneSet.has(PICTURES[i].name));
+      });
+    }
+
+    // Put picture number i on the board (fresh and unpainted)
+    function loadPicture(i) {
+      picIdx = i;
+      const pic = scaledPicture(PICTURES[i]);
+      PALETTE = [null].concat(pic.colors.map(([name, hex]) => ({ name, hex })));
+      target = pic.rows.map(row => [...row].map(ch => ch === "." ? 0 : parseInt(ch, 36)));
+      totalCells = target.reduce((sum, row) => sum + row.filter(c => c > 0).length, 0);
+      buildPalette();
+      markGallery();
+      initPaint();
+    }
+
+    // Pick a picture from the gallery or with [ and ] (never in the middle of a run)
+    function selectPicture(i) {
+      if (state === "playing") return;
+      if (state === "over") { state = "ready"; score = 0; }
+      won = false;
+      loadPicture(i);
+      showDemoSnake();
+      showScore();
+      try { localStorage.setItem("snakePaintPic", i); } catch (e) {}
+    }
+
+    function markDone() {
+      doneSet.add(PICTURES[picIdx].name);
+      try { localStorage.setItem("snakePaintDone", JSON.stringify([...doneSet])); } catch (e) {}
+      markGallery();
+    }
+
+    // The finger just landed on block `cell`: paint it if the number matches the color
+    function paintAt(cell) {
+      const c = target[cell.y][cell.x];
+      if (!c || c !== selColor || painted[cell.y][cell.x]) return;
+      painted[cell.y][cell.x] = true;
+      paintedAt[cell.y][cell.x] = lastTime;
+      remaining[c]--;
+      paintedCount++;
+      showScore();
+      if (paintedCount === totalCells) finishPaint();
+      else if (remaining[c] === 0) { celebrateColor(c, cell); cycleColor(1); }  // this color is done: fireworks, then pick the next one
+      updatePalette();
+    }
+
+    function finishPaint() {
+      state = "over";
+      won = true;
+      endTitle = "COMPLETE!";
+      const sec = Math.round((performance.now() - playStart) / 1000);
+      endLine = "Time " + Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+      startFinale(lastTime);
+      playSfx("streak");                                // rising chimes: the whole picture is finished
+      markDone();
+      refreshModeButtons();
+    }
+
+    // ---------- 3.4c PAINT MODE: FIREWORKS ----------
+    // Everything here is a "particle": a small dot with a position, a speed and a
+    // lifetime. Each frame we move the dots, pull them down a little (gravity),
+    // fade them out, and draw them. A firework is just lots of dots flying
+    // outward from one point.
+    const GRAVITY = 200;        // how fast sparks fall (pixels per second squared)
+    const fx = {
+      sparks: [],               // the dots
+      rockets: [],              // rockets flying up before they explode (finale only)
+      texts: [],                // floating "RED DONE!" labels
+      queue: [],                // things to do a moment later, e.g. a second burst
+      finale: null,             // set when the whole picture is finished
+      last: 0                   // time of the previous frame
+    };
+
+    function clearFx() {
+      fx.sparks.length = 0; fx.rockets.length = 0; fx.texts.length = 0;
+      fx.queue.length = 0; fx.finale = null; fx.last = 0;
+    }
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    // One firework: `count` sparks flying out of (x, y) in all directions
+    function burst(x, y, colors, count, speed) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * TAU;
+        const v = speed * rand(0.35, 1);
+        fx.sparks.push({
+          x, y,
+          vx: Math.cos(angle) * v, vy: Math.sin(angle) * v,
+          age: 0, life: rand(0.8, 1.5),
+          color: colors[i % colors.length],
+          size: rand(2.2, 4) * Math.max(0.8, UI)
+        });
+      }
+    }
+
+    // A color is finished: a small firework where the last block was painted
+    function celebrateColor(c, cell) {
+      playSfx("paint");                                 // soft chime: one color finished
+      const x = cell.x * TILE + TILE / 2, y = cell.y * TILE + TILE / 2;
+      const base = PALETTE[c].hex;
+      burst(x, y, [base, "#ffffff", base, "#fde68a"], 34, 125);
+      fx.queue.push({ at: lastTime + 170, run: () => burst(x + rand(-14, 14) * UI, y + rand(-14, 14) * UI, [base, "#ffffff"], 16, 80) });
+      fx.texts.push({
+        x: Math.max(50 * UI, Math.min(canvas.width - 50 * UI, x)), y: Math.max(26 * UI, y - 12 * UI),
+        t0: lastTime, text: PALETTE[c].name.toUpperCase() + " DONE!", color: base
+      });
+    }
+
+    // The whole picture is finished: two fireworks launchers, one on each wall
+    function startFinale(now) {
+      fx.finale = { start: now, nextL: now, nextR: now + 260 };
+    }
+
+    // A rocket leaves a wall, flies toward the middle, and explodes
+    function launchRocket(side) {            // side: -1 = left wall, +1 = right wall
+      fx.rockets.push({
+        x: side < 0 ? 4 : canvas.width - 4,
+        y: canvas.height * rand(0.55, 0.95),
+        vx: -side * rand(60, 130) * UI,
+        vy: -rand(220, 300) * UI,
+        fuse: rand(0.6, 0.85),               // seconds until it explodes
+        hue: Math.floor(rand(0, 360))
+      });
+    }
+
+    function hsl(h, s, l) { return "hsl(" + (h % 360) + "," + s + "%," + l + "%)"; }
+
+    function updateAndDrawFx(now) {
+      const dt = fx.last ? Math.min((now - fx.last) / 1000, 0.05) : 0;
+      fx.last = now;
+
+      // Finale: keep launching from both walls for about 6.5 seconds
+      const F = fx.finale;
+      if (F) {
+        if (now > F.start + 6500) fx.finale = null;
+        else {
+          if (now >= F.nextL) { launchRocket(-1); F.nextL = now + rand(500, 950); }
+          if (now >= F.nextR) { launchRocket(1);  F.nextR = now + rand(500, 950); }
+        }
+      }
+
+      // Things scheduled for later
+      fx.queue = fx.queue.filter(q => { if (now >= q.at) { q.run(); return false; } return true; });
+
+      // Rockets: move, leave a short trail, explode when the fuse runs out
+      fx.rockets = fx.rockets.filter(r => {
+        r.x += r.vx * dt; r.y += r.vy * dt; r.vy += 260 * UI * dt; r.fuse -= dt;
+        fx.sparks.push({ x: r.x, y: r.y, vx: rand(-12, 12), vy: rand(0, 25), age: 0, life: 0.35,
+                         color: hsl(r.hue, 100, 72), size: 2.2 * Math.max(0.8, UI) });
+        if (r.fuse > 0) return true;
+        const cols = [hsl(r.hue, 95, 58), hsl(r.hue + 40, 95, 62), hsl(r.hue + 180, 90, 65), "#ffffff"];
+        burst(r.x, r.y, cols, 64, 185);
+        return false;
+      });
+
+      // Sparks: move, fall, fade, and draw.
+      // On the dark victory screen they glow ("lighter" adds light); on paper they get a thin rim instead.
+      const glow = (state === "over");
+      ctx.globalCompositeOperation = glow ? "lighter" : "source-over";
+      ctx.lineWidth = 1;
+      fx.sparks = fx.sparks.filter(s => {
+        s.age += dt;
+        if (s.age >= s.life) return false;
+        s.vy += GRAVITY * UI * dt;
+        s.vx *= 1 - 1.2 * dt; s.vy *= 1 - 0.6 * dt;     // a little air drag
+        s.x += s.vx * dt; s.y += s.vy * dt;
+        ctx.globalAlpha = 1 - s.age / s.life;
+        ctx.fillStyle = s.color;
+        ctx.strokeStyle = "rgba(30, 20, 50, 0.55)";
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, TAU);
+        ctx.fill();
+        if (!glow) ctx.stroke();
+        return true;
+      });
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+
+      // Floating "RED DONE!" labels that drift up and fade
+      ctx.textAlign = "center";
+      ctx.font = "bold " + Math.round(16 * UI) + "px 'Courier New', monospace";
+      ctx.lineJoin = "round";
+      fx.texts = fx.texts.filter(t => {
+        const k = (now - t.t0) / 1300;
+        if (k >= 1) return false;
+        ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#2b2b3b";
+        ctx.strokeText(t.text, t.x, t.y - k * 30 * UI);
+        ctx.fillStyle = t.color;
+        ctx.fillText(t.text, t.x, t.y - k * 30 * UI);
+        return true;
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    // "COMPLETE!" in big rainbow letters that bounce and slowly change color
+    function drawVictoryText(now) {
+      const text = endTitle;
+      const cy = canvas.height / 2;
+      ctx.font = "bold " + Math.round(46 * UI) + "px 'Courier New', monospace";
+      ctx.textAlign = "left";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 6 * UI;
+      const letterW = ctx.measureText("M").width;        // monospace: every letter is the same width
+      let x = canvas.width / 2 - (letterW * text.length) / 2;
+      for (let i = 0; i < text.length; i++) {
+        const y = cy + Math.sin(now / 170 + i * 0.7) * 6 * UI;   // bounce
+        const hue = (now / 5 + i * 38) % 360;                    // rainbow that slides along the word
+        ctx.strokeStyle = "#1b1030";
+        ctx.strokeText(text[i], x, y);
+        ctx.shadowColor = hsl(hue, 100, 60);
+        ctx.shadowBlur = 14 * UI;
+        ctx.fillStyle = hsl(hue, 95, 62);
+        ctx.fillText(text[i], x, y);
+        ctx.shadowBlur = 0;
+        x += letterW;
+      }
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold " + Math.round(20 * UI) + "px 'Courier New', monospace";
+      ctx.fillText(endLine, canvas.width / 2, cy + 44 * UI);
+      ctx.fillStyle = "#c9cde0";
+      ctx.font = Math.round(16 * UI) + "px 'Courier New', monospace";
+      ctx.fillText("Press SPACE to play again", canvas.width / 2, cy + 76 * UI);
+    }
+
+    // Esc: pause the run. The board freezes and nothing is lost.
+    function pauseRun() {
+      if (state !== "playing" || paused) return;
+      paused = true;
+      pauseAt = performance.now();
+    }
+
+    // Space / arrow keys / WASD: carry on exactly where we stopped
+    function resumeRun() {
+      if (!paused) return;
+      const gap = performance.now() - pauseAt;
+      flipTime += gap;        // keep the Flip swap animation in step
+      playStart += gap;       // the pause does not count toward the Paint timer
+      paused = false;
+    }
+
+    // Esc while paused: end the run for real (this unlocks the mode buttons again)
+    function quitRun() {
+      paused = false;
+      state = "ready";
+      score = 0;
+      won = false;
+      if (modeKey === "paint") initPaint();
+      showDemoSnake();
+      showScore();
+      refreshModeButtons();
+    }
+
+    // Load saved settings. try/catch because browser storage can be blocked.
+    try {
+      const savedStyle = localStorage.getItem("snakeStyle");
+      if (savedStyle && THEMES[savedStyle]) themeKey = savedStyle;
+      const savedMode = localStorage.getItem("snakeMode");
+      if (savedMode && MODES[savedMode]) modeKey = savedMode;
+      const savedSize = localStorage.getItem("snakeSize");
+      if (savedSize && SIZES[savedSize]) configureSize(savedSize);
+      best = Number(localStorage.getItem(bestKey(modeKey))) || 0; // best score is kept per mode and size
+    } catch (e) { /* the game still works without saving */ }
+    bestEl.textContent = best;
+
+    // ---------- 3.5 STARTING A GAME ----------
+    function resetGame() {
+      paused = false;
+      won = false; endTitle = "GAME OVER"; endLine = "";
+      if (modeKey === "paint") {
+        // Paint mode: a short "finger" that starts below the picture
+        snake = paintStart();
+        initPaint();
+        playStart = performance.now();
+      } else {
+        snake = normalStart();
+      }
+      prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+      direction = { x: 1, y: 0 };
+      nextDirection = { x: 1, y: 0 };
+      score = 0;
+      stepMs = (modeKey === "paint") ? SIZES[sizeKey].paintMs : SIZES[sizeKey].baseMs;
+      showScore();
+      deathReason = "";
+      crashSpot = null;
+      pendingFlip = false;
+      flipTime = -99999;
+      placeFood();
+      state = "playing";
+      accumulator = 0;
+      refreshModeButtons();
+    }
+
+    // Where the snake starts (the middle of the board / the bottom of the Paint picture)
+    function normalStart() {
+      const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
+      return [ { x: cx, y: cy }, { x: cx - 1, y: cy }, { x: cx - 2, y: cy } ];
+    }
+    function paintStart() {
+      const cx = Math.floor(COLS / 2), y = SIZES[sizeKey].paintY;
+      return [ { x: cx, y }, { x: cx - 1, y }, { x: cx - 2, y }, { x: cx - 3, y } ];
+    }
+
+    // The title screen shows a curvy demo snake
+    function showDemoSnake() {
+      if (modeKey === "paint") {
+        snake = paintStart();
+        prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+        food = { x: 0, y: 0 };    // (not used in Paint mode)
+        return;
+      }
+      // a little "U" shape: along the top, down one, back along the bottom
+      const w = SIZES[sizeKey].demoW;
+      const xl = Math.floor((COLS - w) / 2), ty = Math.floor(ROWS / 2) - 4;
+      const cells = [];
+      for (let x = xl + w - 1; x >= xl; x--) cells.push([x, ty]);
+      cells.push([xl, ty + 1]);
+      for (let x = xl; x <= xl + w - 2; x++) cells.push([x, ty + 2]);
+      snake = cells.map(([x, y]) => ({ x, y }));
+      prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+      food = { x: COLS - 2, y: Math.floor(ROWS / 2) };
+    }
+
+    function placeFood() {
+      let spot;
+      do {
+        spot = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+      } while (snake.some(seg => seg.x === spot.x && seg.y === spot.y));
+      food = spot;
+    }
+
+    // ---------- 3.6 GAME RULES (one step of the game) ----------
+    function step() {
+      // FLIP MODE: the step after eating is a "swap beat". The snake pauses
+      // for a moment, its tail becomes the head, and you get time to steer.
+      if (pendingFlip) {
+        pendingFlip = false;
+        snake.reverse();                                   // old tail is now snake[0]
+        // The new head faces AWAY from the body (from the 2nd segment to the head)
+        direction = { x: snake[0].x - snake[1].x, y: snake[0].y - snake[1].y };
+        nextDirection = direction;
+        prevSnake = snake.map(s => ({ x: s.x, y: s.y }));  // no sliding during the beat
+        flipTime = lastTime;                               // starts the swap animation
+        accumulator -= (FLIP_PAUSE_MS - stepMs);            // hold still for exactly FLIP_PAUSE_MS
+        return;
+      }
+
+      // Remember where everything was, so draw() can slide it to the new spot
+      prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+
+      direction = nextDirection;
+      const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+
+      // PORTAL / PAINT MODE: going past an edge puts the head on the opposite edge
+      if (wraps()) {
+        head.x = (head.x + COLS) % COLS;
+        head.y = (head.y + ROWS) % ROWS;
+      }
+
+      // PAINT MODE: no food, no crashing. The finger just glides along
+      // (it may even cross itself) and paints the blocks it lands on.
+      if (modeKey === "paint") {
+        snake.unshift(head);
+        snake.pop();
+        paintAt(head);
+        return;
+      }
+
+      const ate = (head.x === food.x && head.y === food.y);
+
+      // Walls only kill in the modes that have walls
+      const hitWall = !wraps() &&
+                      (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS);
+      // Every segment of the body (even the tail) is a solid wall
+      const hitSelf = snake.some(seg => seg.x === head.x && seg.y === head.y);
+
+      if (hitWall || hitSelf) {
+        crashSpot = head;
+        gameOver(hitSelf ? "You hit yourself!" : "You hit the wall!");
+        return;
+      }
+
+      snake.unshift(head);
+      if (ate) {
+        score++;
+        scoreEl.textContent = score;
+        stepMs = Math.max(60, stepMs - 4);
+        playSfx("eat");                               // crunch!
+        placeFood();
+        if (modeKey === "flip") pendingFlip = true;   // swap head and tail on the next step
+      } else {
+        snake.pop();
+      }
+    }
+
+    function gameOver(reason) {
+      state = "over";
+      deathReason = reason;
+      won = false;
+      endTitle = "GAME OVER";
+      endLine = reason + "  Score: " + score;
+      playSfx("over");
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+        try { localStorage.setItem(bestKey(modeKey), best); } catch (e) {}
+      }
+      refreshModeButtons();
+    }
+
+    // ---------- 3.7 CONTROLS ----------
+    const KEYS = {
+      ArrowUp:    { x: 0,  y: -1 }, w: { x: 0,  y: -1 }, W: { x: 0,  y: -1 },
+      ArrowDown:  { x: 0,  y: 1 },  s: { x: 0,  y: 1 },  S: { x: 0,  y: 1 },
+      ArrowLeft:  { x: -1, y: 0 },  a: { x: -1, y: 0 },  A: { x: -1, y: 0 },
+      ArrowRight: { x: 1,  y: 0 },  d: { x: 1,  y: 0 },  D: { x: 1,  y: 0 }
+    };
+
+    function turn(dir) {
+      const isReverse = (dir.x === -direction.x && dir.y === -direction.y);
+      if (!isReverse) nextDirection = dir;
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (state !== "playing") resetGame();
+        else if (paused) resumeRun();
+        return;
+      }
+      // M turns the sound on or off
+      if (event.key === "m" || event.key === "M") { setSound(!soundOn); return; }
+      // Paint mode: [ and ] pick the previous / next picture
+      if (modeKey === "paint" && (event.key === "[" || event.key === "]")) {
+        selectPicture((picIdx + (event.key === "]" ? 1 : -1) + PICTURES.length) % PICTURES.length);
+        return;
+      }
+      // Esc stops a run (so you can change mode)
+      if (event.key === "Escape" && state === "playing") { if (paused) quitRun(); else pauseRun(); return; }
+      // Paint mode: Q / E pick the previous / next color
+      if (modeKey === "paint" && /^[qQeE]$/.test(event.key)) {
+        cycleColor(/[qQ]/.test(event.key) ? -1 : 1);
+        return;
+      }
+      // Number keys: first the styles (1-2), then the modes (3-6)
+      const n = Number(event.key);
+      const styleKeys = Object.keys(THEMES);
+      const modeKeys = Object.keys(MODES);
+      if (n >= 1 && n <= styleKeys.length) {
+        setTheme(styleKeys[n - 1]);
+        return;
+      }
+      if (n > styleKeys.length && n <= styleKeys.length + modeKeys.length) {
+        setMode(modeKeys[n - styleKeys.length - 1]);
+        return;
+      }
+      const sizeKeys = Object.keys(SIZES);
+      const off = styleKeys.length + modeKeys.length;
+      if (n > off && n <= off + sizeKeys.length) {
+        setSize(sizeKeys[n - off - 1]);
+        return;
+      }
+      if (KEYS[event.key]) {
+        event.preventDefault();
+        if (state === "playing") {
+          turn(KEYS[event.key]);
+          if (paused) resumeRun();     // an arrow / WASD key also resumes a paused run
+        }
+      }
+    });
+
+    let touchStart = null;
+    canvas.addEventListener("touchstart", (event) => {
+      const t = event.touches[0];
+      touchStart = { x: t.clientX, y: t.clientY };
+      if (state !== "playing") resetGame();
+      else if (paused) resumeRun();     // tapping a paused board resumes it
+    });
+    canvas.addEventListener("touchend", (event) => {
+      if (!touchStart || state !== "playing") return;
+      const t = event.changedTouches[0];
+      const dx = t.clientX - touchStart.x;
+      const dy = t.clientY - touchStart.y;
+      if (Math.abs(dx) > Math.abs(dy)) turn({ x: dx > 0 ? 1 : -1, y: 0 });
+      else turn({ x: 0, y: dy > 0 ? 1 : -1 });
+      touchStart = null;
+    });
+
+    // ---------- 3.8 STYLE AND MODE SWITCHING ----------
+    function setTheme(key) {
+      themeKey = key;
+      document.documentElement.style.setProperty("--accent", THEMES[key].accent);
+      stylesEl.querySelectorAll("button").forEach(b => {
+        b.classList.toggle("active", b.dataset.key === key);
+      });
+      try { localStorage.setItem("snakeStyle", key); } catch (e) {}
+    }
+
+    // Modes can only be changed between runs (so you can't switch rules mid-game)
+    function setMode(key) {
+      if (state === "playing") return;
+      modeKey = key;
+      modeListEl.querySelectorAll("button").forEach(b => {
+        b.classList.toggle("active", b.dataset.key === key);
+      });
+      // Portal mode shows a dashed border: a hint that the walls are open
+      canvas.style.borderStyle = (key === "wrap") ? "dashed" : "solid";
+      try {
+        localStorage.setItem("snakeMode", key);
+        best = Number(localStorage.getItem(bestKey(key))) || 0;
+      } catch (e) { best = 0; }
+      bestEl.textContent = (key === "paint") ? "-" : best;   // Paint mode has no best score (yet)
+      paletteEl.classList.toggle("show", key === "paint");
+      galleryEl.classList.toggle("show", key === "paint");
+      // Back to the title screen for the new mode (we never get here mid-run)
+      if (state === "over") { state = "ready"; score = 0; }
+      won = false;
+      clearFx();
+      if (key === "paint") loadPicture(picIdx);   // fit the picture to the current board size
+      showDemoSnake();
+      showScore();
+    }
+
+    function markSizeButtons() {
+      sizesEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.key === sizeKey));
+    }
+
+    // Board size can only change between runs, like the mode
+    function setSize(key) {
+      if (state === "playing" || !SIZES[key]) return;
+      configureSize(key);
+      markSizeButtons();
+      try { localStorage.setItem("snakeSize", key); } catch (e) {}
+      try { best = Number(localStorage.getItem(bestKey(modeKey))) || 0; } catch (e) { best = 0; }
+      bestEl.textContent = (modeKey === "paint") ? "-" : best;
+      if (state === "over") { state = "ready"; score = 0; }
+      won = false;
+      clearFx();
+      loadPicture(picIdx);   // re-fit the picture to the new board (even if Paint is not the current mode)
+      showDemoSnake();
+      showScore();
+    }
+
+    function refreshModeButtons() {
+      const locked = (state === "playing");
+      modeListEl.querySelectorAll("button").forEach(b => { b.disabled = locked; });
+      modeNoteEl.style.visibility = locked ? "visible" : "hidden";
+      galleryEl.querySelectorAll("button").forEach(b => { b.disabled = locked; });
+      sizesEl.querySelectorAll("button").forEach(b => { b.disabled = locked; });
+    }
+
+    function setupButtons() {
+      const styleKeys = Object.keys(THEMES);
+      styleKeys.forEach((key, i) => {
+        const b = document.createElement("button");
+        b.textContent = (i + 1) + " " + THEMES[key].label;
+        b.dataset.key = key;
+        b.addEventListener("click", () => { setTheme(key); b.blur(); }); // blur: so Space doesn't re-click it
+        stylesEl.appendChild(b);
+      });
+      Object.keys(MODES).forEach((key, i) => {
+        const b = document.createElement("button");
+        b.dataset.key = key;
+        const name = document.createElement("span");
+        name.className = "m-name";
+        name.textContent = (styleKeys.length + i + 1) + " " + MODES[key].label;
+        const desc = document.createElement("span");
+        desc.className = "m-desc";
+        desc.textContent = MODES[key].desc;
+        b.append(name, desc);
+        b.addEventListener("click", () => { setMode(key); b.blur(); });
+        modeListEl.appendChild(b);
+      });
+      Object.keys(SIZES).forEach((key, i) => {
+        const b = document.createElement("button");
+        b.textContent = (styleKeys.length + Object.keys(MODES).length + i + 1) + " " + SIZES[key].label;
+        b.dataset.key = key;
+        b.addEventListener("click", () => { setSize(key); b.blur(); });
+        sizesEl.appendChild(b);
+      });
+      markSizeButtons();
+      buildGallery();
+      loadPicture(picIdx);
+      setTheme(themeKey);
+      setMode(modeKey);
+      refreshModeButtons();
+    }
+
+    // ---------- 3.9 SMOOTH SNAKE GEOMETRY ----------
+    // Shift value v by whole board-widths so it lands as close to ref as possible.
+    // This is what lets the snake stretch ACROSS an edge in Portal mode.
+    function nearestWrapped(v, ref, size) {
+      return v + Math.round((ref - v) / size) * size;
+    }
+
+    // Step 1: where is each segment RIGHT NOW (between its old and new square)?
+    function getBodyPoints() {
+      const t = (state === "playing") ? Math.max(0, Math.min(accumulator / stepMs, 1)) : 1;
+      const pts = [];
+      snake.forEach((seg, i) => {
+        const prev = prevSnake[Math.min(i, prevSnake.length - 1)];
+        // How far did this segment move? A jump across the board (Portal mode)
+        // counts as a normal 1-square move off the edge.
+        let dx = seg.x - prev.x, dy = seg.y - prev.y;
+        if (dx > 1) dx -= COLS; else if (dx < -1) dx += COLS;
+        if (dy > 1) dy -= ROWS; else if (dy < -1) dy += ROWS;
+        let x = (prev.x + dx * t) * TILE + TILE / 2;
+        let y = (prev.y + dy * t) * TILE + TILE / 2;
+        // Keep the body connected to the segment in front of it (even across an edge)
+        if (i > 0) {
+          x = nearestWrapped(x, pts[i - 1].x, canvas.width);
+          y = nearestWrapped(y, pts[i - 1].y, canvas.height);
+        }
+        pts.push({ x, y });
+      });
+      return pts;
+    }
+
+    // Step 2: round off the corners and pick many tiny sample points along the curve
+    function sampleSmoothPath(P) {
+      const STEPS = 8;
+      const out = [];
+      let cur = P[0];
+      for (let i = 1; i < P.length - 1; i++) {
+        const end = { x: (P[i].x + P[i + 1].x) / 2, y: (P[i].y + P[i + 1].y) / 2 };
+        for (let k = 0; k < STEPS; k++) {
+          const u = k / STEPS;
+          out.push({
+            x: (1 - u) * (1 - u) * cur.x + 2 * (1 - u) * u * P[i].x + u * u * end.x,
+            y: (1 - u) * (1 - u) * cur.y + 2 * (1 - u) * u * P[i].y + u * u * end.y
+          });
+        }
+        cur = end;
+      }
+      const last = P[P.length - 1];
+      for (let k = 0; k <= STEPS; k++) {
+        const u = k / STEPS;
+        out.push({ x: cur.x + (last.x - cur.x) * u, y: cur.y + (last.y - cur.y) * u });
+      }
+      return out;
+    }
+
+    // Thick near the head, thin at the tail
+    function bodyRadius(i, n) {
+      const u = i / Math.max(n - 1, 1);
+      return BASE_R * (1 - 0.65 * Math.pow(u, 1.6));
+    }
+
+    // ---------- 3.10 DRAWING HELPERS ----------
+    function circle(x, y, r, fill) {
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fill();
+    }
+
+    // Fill MANY circles as ONE shape (so see-through colors don't pile up)
+    function fillCircles(S, rad, style, dx = 0, dy = 0, step = 1) {
+      ctx.beginPath();
+      for (let i = 0; i < S.length; i += step) {
+        const rr = rad(i);
+        if (rr <= 0.3) continue;
+        ctx.moveTo(S[i].x + dx + rr, S[i].y + dy);
+        ctx.arc(S[i].x + dx, S[i].y + dy, rr, 0, TAU);
+      }
+      ctx.fillStyle = style;
+      ctx.fill();
+    }
+
+    // ---------- 3.11 THE TWO SNAKE STYLES ----------
+    // S = the sampled curve (head first), r(i) = radius at sample i
+
+    // Neon: a glowing energy tube with light pulses running toward the head
+    function paintNeon(S, r, now) {
+      const pulse = 0.5 + 0.5 * Math.sin(now / 260);
+      fillCircles(S, i => r(i) + 8 * K, `rgba(34,211,238,${0.07 + 0.05 * pulse})`); // wide soft glow
+      fillCircles(S, i => r(i) + 4 * K, `rgba(34,211,238,${0.16 + 0.08 * pulse})`); // tighter glow
+      fillCircles(S, i => r(i) * 0.85, "#0e7490");                              // tube edge
+      fillCircles(S, i => r(i) * 0.6, "#22d3ee");                               // bright tube
+      fillCircles(S, i => r(i) * 0.28, "#ecfeff");                              // hot center line
+      const travel = (now / 12) % 40;                                           // moving light pulses
+      fillCircles(S, i => (((i + travel) % 40) < 6) ? r(i) * 0.5 : 0, "rgba(255,255,255,0.9)");
+    }
+
+    // Bubbles: a wobbly rainbow snake
+    function paintBubble(S, r, now) {
+      const n = S.length;
+      const rb = i => r(i) * (1 + 0.10 * Math.sin((i / 8) * TAU * 0.9 - now / 180)); // wobble
+      fillCircles(S, i => rb(i) + 1.5 * K, "rgba(40,10,70,0.8)");
+      for (let i = n - 1; i >= 0; i--) {
+        const hue = ((i / 8) * 22 + now / 25) % 360;  // colors slide along the body
+        circle(S[i].x, S[i].y, rb(i), `hsl(${hue}, 85%, 62%)`);
+      }
+      fillCircles(S, i => rb(i) * 0.35, "rgba(255,255,255,0.40)", -2 * K, -3 * K);
+    }
+
+    // ---------- 3.12 HEAD, EYES, TONGUE (shared by both styles) ----------
+    // atTail = true gives the head info for the FAR end (used by the swap animation)
+    function headInfo(S, atTail = false) {
+      const n = S.length;
+      const h = atTail ? S[n - 1] : S[0];
+      const ref = atTail ? S[Math.max(n - 7, 0)] : S[Math.min(6, n - 1)];
+      const ang = Math.atan2(h.y - ref.y, h.x - ref.x); // the direction the head faces
+      const fx = Math.cos(ang), fy = Math.sin(ang);     // "forward" arrow
+      const scale = (modeKey === "paint") ? 1.12 : { neon: 1.0, bubble: 1.22 }[themeKey];
+      return { h, fx, fy, px: -fy, py: fx, hr: BASE_R * scale }; // px,py = "sideways" arrow
+    }
+
+    function paintTongue(H, now) {
+      if (state === "over") return;
+      const ph = (now % 1500) / 1500;                       // a flick once every 1.5 seconds
+      const L = ph < 0.2 ? Math.sin((ph / 0.2) * Math.PI) * 12 * K : 0;
+      if (L < 1) return;
+      const { h, fx, fy, px, py, hr } = H;
+      const mx = h.x + fx * (hr + L * 0.6), my = h.y + fy * (hr + L * 0.6);
+      ctx.strokeStyle = THEMES[themeKey].tongue;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(h.x + fx * hr * 0.8, h.y + fy * hr * 0.8);
+      ctx.lineTo(mx, my);
+      ctx.moveTo(mx, my);
+      ctx.lineTo(h.x + fx * (hr + L) + px * 3 * K, h.y + fy * (hr + L) + py * 3 * K);
+      ctx.moveTo(mx, my);
+      ctx.lineTo(h.x + fx * (hr + L) - px * 3 * K, h.y + fy * (hr + L) - py * 3 * K);
+      ctx.stroke();
+    }
+
+    // PAINT MODE: the snake is drawn as a brush loaded with the selected color
+    function paintBrush(S, r) {
+      fillCircles(S, i => r(i) + 1.8 * K, "#2b2b3b");                          // dark outline
+      fillCircles(S, r, PALETTE[selColor].hex);                            // body in the paint color
+      fillCircles(S, i => r(i) * 0.4, "rgba(255,255,255,0.28)", -1.5 * K, -2.5 * K); // shine
+    }
+
+    function paintBrushHead(H) {
+      const { h, hr } = H;
+      circle(h.x, h.y, hr + 1.8 * K, "#2b2b3b");
+      circle(h.x, h.y, hr, PALETTE[selColor].hex);
+      circle(h.x - 2 * K, h.y - 3 * K, hr * 0.35, "rgba(255,255,255,0.35)");
+    }
+
+    function paintHead(H, now) {
+      const { h, hr } = H;
+      if (modeKey === "paint") { paintBrushHead(H); return; }
+      if (themeKey === "neon") {
+        circle(h.x, h.y, hr + 8 * K, "rgba(34,211,238,0.12)");
+        circle(h.x, h.y, hr + 4 * K, "rgba(34,211,238,0.22)");
+        circle(h.x, h.y, hr * 0.9, "#a5f3fc");
+      } else {
+        const hue = (now / 25) % 360;
+        circle(h.x, h.y, hr + 1.5 * K, "rgba(40,10,70,0.8)");
+        circle(h.x, h.y, hr, `hsl(${hue}, 85%, 62%)`);
+        circle(h.x - 2 * K, h.y - 3 * K, hr * 0.35, "rgba(255,255,255,0.4)");
+      }
+    }
+
+    // Where the pupils look: at the food, or (Paint mode) at the nearest block
+    // that still needs the selected color (taking the short way round the edges)
+    function lookTarget(fromX, fromY) {
+      if (modeKey !== "paint") return { x: food.x * TILE + TILE / 2, y: food.y * TILE + TILE / 2 };
+      let best = null, bestD = Infinity;
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          if (target[y][x] !== selColor || painted[y][x]) continue;
+          const cx = nearestWrapped(x * TILE + TILE / 2, fromX, canvas.width);
+          const cy = nearestWrapped(y * TILE + TILE / 2, fromY, canvas.height);
+          const d = Math.hypot(cx - fromX, cy - fromY);
+          if (d < bestD) { bestD = d; best = { x: cx, y: cy }; }
+        }
+      }
+      return best || { x: fromX, y: fromY + 100 };   // nothing left: look down at the viewer
+    }
+
+    function paintEyes(H) {
+      const { h, fx, fy, px, py, hr } = H;
+      const eyeR = hr * (themeKey === "bubble" ? 0.40 : 0.30);
+      for (const side of [-1, 1]) {
+        const ex = h.x + fx * hr * 0.35 + px * side * hr * 0.55;
+        const ey = h.y + fy * hr * 0.35 + py * side * hr * 0.55;
+        if (state === "over" && !won) {
+          // Dead eyes: a little X
+          const d = eyeR * 0.7;
+          ctx.strokeStyle = "#111";
+          ctx.lineWidth = 2;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(ex - d, ey - d); ctx.lineTo(ex + d, ey + d);
+          ctx.moveTo(ex + d, ey - d); ctx.lineTo(ex - d, ey + d);
+          ctx.stroke();
+        } else {
+          circle(ex, ey, eyeR, "#ffffff");
+          // Pupils look toward the food (the short way round, in Portal mode)
+          let { x: fxp, y: fyp } = lookTarget(ex, ey);
+          if (modeKey === "wrap") {
+            fxp = nearestWrapped(fxp, ex, canvas.width);
+            fyp = nearestWrapped(fyp, ey, canvas.height);
+          }
+          const lx = fxp - ex, ly = fyp - ey;
+          const len = Math.hypot(lx, ly) || 1;
+          circle(ex + (lx / len) * eyeR * 0.4, ey + (ly / len) * eyeR * 0.4, eyeR * 0.55, "#111");
+        }
+      }
+    }
+
+    // ---------- 3.12b FLIP MODE: THE SWAP ANIMATION ----------
+    // When head and tail swap, the head does NOT teleport. Instead:
+    //  1. a fat bulge (the "head") slides along the body to the other end,
+    //  2. a whip-like wave travels with it, then bounces back as a weaker echo,
+    //  3. the old face fades out and the new face fades in at the far end.
+
+    function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+    // Smooth start and smooth stop: 0 -> 1
+    function easeInOut(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+
+    // Returns null when no swap animation is running
+    function flipAnimState(now) {
+      if (modeKey !== "flip" || state === "over") return null;
+      const age = now - flipTime;
+      if (age < 0 || age >= FLIP_ANIM_MS) return null;
+      const tau = age / FLIP_ANIM_MS;              // 0 -> 1 over the whole animation
+      const e = easeInOut(clamp01(tau / 0.5));     // 0 -> 1 while the head travels
+      // m = where the bulge is along the body: 1 = old head end, 0 = new head end
+      return { tau, e, m: 1 - e };
+    }
+
+    // Body thickness during the swap: fattest at the bulge, thinner toward both ends
+    function flipRadius(i, n, fa) {
+      const u = i / Math.max(n - 1, 1);                          // 0 = new head end, 1 = old head end
+      const span = Math.max(fa.m, 1 - fa.m, 0.0001);
+      const d = Math.abs(u - fa.m) / span;                       // 0 at the bulge, 1 at the far end
+      const base = BASE_R * (1 - 0.65 * Math.pow(d, 1.6));       // (same taper as normal, but centered on the bulge)
+      const bump = FLIP_BULGE * Math.sin(Math.PI * fa.e) * Math.exp(-Math.pow((u - fa.m) / 0.18, 2));
+      return base * (1 + bump);
+    }
+
+    // Push each point sideways to make waves run along the body
+    function applyFlipWave(S, fa) {
+      const n = S.length;
+      const L = (n - 1) / 8;                    // body length in tiles (8 samples per tile)
+      const lambda = 3, sigma = 2.2, A = FLIP_WAVE_PX * K; // wavelength and packet width (tiles), strength (pixels)
+      // Packet 1 runs from the old head end (s = L) to the new head end (s = 0).
+      const c1 = L * (1 - easeInOut(clamp01(fa.tau / 0.5)));
+      const a1 = A * clamp01(fa.tau / 0.08) * (1 - clamp01((fa.tau - 0.45) / 0.15));
+      // Packet 2 is the echo: it bounces back toward the old head end, weaker.
+      const c2 = L * easeInOut(clamp01((fa.tau - 0.5) / 0.4));
+      const a2 = 0.6 * A * clamp01((fa.tau - 0.5) / 0.08) * (1 - clamp01((fa.tau - 0.85) / 0.15));
+
+      return S.map((p, i) => {
+        const s = i / 8;
+        const wave = a1 * Math.exp(-Math.pow((s - c1) / sigma, 2)) * Math.sin(TAU * (s - c1) / lambda)
+                   + a2 * Math.exp(-Math.pow((s - c2) / sigma, 2)) * Math.sin(TAU * (s - c2) / lambda + Math.PI);
+        // "Sideways" = perpendicular to the direction the body runs at this point
+        const a = S[Math.max(i - 1, 0)], b = S[Math.min(i + 1, n - 1)];
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        return { x: p.x - ((b.y - a.y) / len) * wave, y: p.y + ((b.x - a.x) / len) * wave };
+      });
+    }
+
+    // Both faces during the swap: the old one fades out, the new one fades in
+    function paintSwapFaces(S, fa, now) {
+      const aOld = 1 - clamp01(fa.tau / 0.22);
+      if (aOld > 0.02) {
+        const Ho = headInfo(S, true);          // the old head, at the far end
+        ctx.globalAlpha = aOld;
+        paintHead(Ho, now);
+        paintEyes(Ho);
+      }
+      const aNew = clamp01((fa.tau - 0.38) / 0.2);
+      if (aNew > 0.02) {
+        const Hn = headInfo(S);                // the new head, where the bulge arrives
+        Hn.hr *= 1 + FLIP_POP * Math.sin(Math.PI * clamp01((fa.tau - 0.5) / 0.4)); // a little "pop" on arrival
+        ctx.globalAlpha = aNew;
+        paintHead(Hn, now);
+        paintEyes(Hn);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawSnake(now) {
+      let S = sampleSmoothPath(getBodyPoints());
+      const n = S.length;
+      const fa = flipAnimState(now);               // null unless a head/tail swap is animating
+      let r = i => bodyRadius(i, n);
+      if (fa) {
+        S = applyFlipWave(S, fa);
+        r = i => flipRadius(i, n, fa);
+      }
+      const H = headInfo(S);
+
+      // PORTAL MODE: a snake crossing an edge is drawn twice (once at each end
+      // of the board) so it looks like it slides through the wall.
+      let xs = [0], ys = [0];
+      if (wraps()) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const s of S) {
+          if (s.x < minX) minX = s.x;
+          if (s.x > maxX) maxX = s.x;
+          if (s.y < minY) minY = s.y;
+          if (s.y > maxY) maxY = s.y;
+        }
+        const m = BASE_R + 12 * K;
+        if (minX - m < 0) xs.push(canvas.width);
+        if (maxX + m > canvas.width) xs.push(-canvas.width);
+        if (minY - m < 0) ys.push(canvas.height);
+        if (maxY + m > canvas.height) ys.push(-canvas.height);
+      }
+
+      for (const ox of xs) {
+        for (const oy of ys) {
+          ctx.save();
+          ctx.translate(ox, oy);
+          if (!fa) paintTongue(H, now);            // tongue first, so the head covers its base
+          if (modeKey === "paint") paintBrush(S, r);
+          else if (themeKey === "neon") paintNeon(S, r, now);
+          else paintBubble(S, r, now);
+          if (fa) {
+            paintSwapFaces(S, fa, now);
+          } else {
+            paintHead(H, now);
+            paintEyes(H);
+          }
+          ctx.restore();
+        }
+      }
+    }
+
+    // ---------- 3.13 FOOD, BACKGROUND, SCREENS ----------
+    function drawFood(now) {
+      const cx = food.x * TILE + TILE / 2, cy = food.y * TILE + TILE / 2;
+      const R = (TILE / 2 - 3 * K) * (1 + 0.08 * Math.sin(now / 200)); // gentle pulse
+      circle(cx, cy, R + 7 * K, "rgba(255,255,255,0.07)");
+      circle(cx, cy, R + 3.5 * K, "rgba(255,255,255,0.12)");
+      circle(cx, cy, R, THEMES[themeKey].food);
+      circle(cx - R * 0.3, cy - R * 0.35, R * 0.28, "rgba(255,255,255,0.55)");
+    }
+
+    function drawBackground() {
+      const T = THEMES[themeKey];
+      ctx.fillStyle = T.bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = T.grid;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 1; i < COLS; i++) {
+        ctx.moveTo(i * TILE + 0.5, 0); ctx.lineTo(i * TILE + 0.5, canvas.height);
+      }
+      for (let j = 1; j < ROWS; j++) {
+        ctx.moveTo(0, j * TILE + 0.5); ctx.lineTo(canvas.width, j * TILE + 0.5);
+      }
+      ctx.stroke();
+    }
+
+    // PAINT MODE: the paper with its numbered blocks
+    function drawPaintBoard(now) {
+      ctx.fillStyle = "#f4efe3";                       // paper
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold " + Math.max(8, Math.round(TILE * 0.55)) + "px 'Courier New', monospace";
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const c = target[y][x];
+          if (!c) continue;                            // blank paper
+          const px = x * TILE, py = y * TILE;
+          if (painted[y][x]) {
+            // Painted block, with a quick "pop" right after it was painted
+            const age = now - paintedAt[y][x];
+            const s = (TILE - 1) * (age < 220 ? 1 + 0.25 * Math.sin(Math.PI * age / 220) : 1);
+            ctx.fillStyle = PALETTE[c].hex;
+            ctx.fillRect(px + TILE / 2 - s / 2, py + TILE / 2 - s / 2, s, s);
+          } else {
+            // Unpainted block: pale square with its number.
+            // Blocks of the selected color glow softly so you can find them.
+            ctx.fillStyle = "#e4ddcb";
+            ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+            if (c === selColor) {
+              ctx.globalAlpha = 0.18 + 0.14 * pulse;
+              ctx.fillStyle = PALETTE[c].hex;
+              ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+              ctx.globalAlpha = 1;
+            }
+            ctx.fillStyle = (c === selColor) ? "#3a3a4a" : "#9a927e";
+            ctx.fillText(String(c), px + TILE / 2, py + TILE / 2 + 1);
+          }
+        }
+      }
+      ctx.strokeStyle = "rgba(60,50,30,0.2)";            // grid lines (easy to see)
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 1; i < COLS; i++) { ctx.moveTo(i * TILE + 0.5, 0); ctx.lineTo(i * TILE + 0.5, canvas.height); }
+      for (let j = 1; j < ROWS; j++) { ctx.moveTo(0, j * TILE + 0.5); ctx.lineTo(canvas.width, j * TILE + 0.5); }
+      ctx.stroke();
+      ctx.textBaseline = "alphabetic";                 // put text settings back for the other screens
+    }
+
+    function draw(now) {
+      if (modeKey === "paint") {
+        drawPaintBoard(now);
+      } else {
+        drawBackground();
+        drawFood(now);
+      }
+      drawSnake(now);
+      if (state !== "over") updateAndDrawFx(now);    // small color-complete fireworks
+
+      if (state === "ready") {
+        if (modeKey === "paint") {
+          ctx.fillStyle = "rgba(18, 20, 28, 0.82)";    // dark band so the text is readable on paper
+          ctx.fillRect(0, canvas.height * 0.75 - 42 * UI, canvas.width, 102 * UI);
+        }
+        const M = MODES[modeKey];
+        if (modeKey === "paint") {
+          drawMessage(PICTURES[picIdx].name, totalCells + " blocks \u00b7 " + (PALETTE.length - 1) + " colors", "Press SPACE to start", canvas.height * 0.75);
+        } else {
+          drawMessage(M.label + " mode", M.desc, "Press SPACE to start", canvas.height * 0.75);
+        }
+      }
+
+      if (paused && state === "playing") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawMessage("PAUSED", "SPACE / arrows / WASD to resume", "Esc again to end the run");
+      }
+
+      if (state === "over") {
+        // Red burst where the head hit the body (not shown for wall hits)
+        if (crashSpot && crashSpot.x >= 0 && crashSpot.x < COLS &&
+            crashSpot.y >= 0 && crashSpot.y < ROWS) {
+          const cx = crashSpot.x * TILE + TILE / 2, cy = crashSpot.y * TILE + TILE / 2;
+          circle(cx, cy, TILE * 0.6, "rgba(239,68,68,0.55)");
+          ctx.strokeStyle = "#ef4444";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(cx, cy, TILE * 0.6, 0, TAU);
+          ctx.stroke();
+        }
+        ctx.fillStyle = won ? "rgba(8, 4, 24, 0.74)" : "rgba(0, 0, 0, 0.45)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        updateAndDrawFx(now);                        // finale fireworks go above the dark layer
+        if (won) drawVictoryText(now);
+        else drawMessage(endTitle, endLine, "Press SPACE to play again");
+      }
+    }
+
+    function drawMessage(title, line2, line3, cy = canvas.height / 2) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#e8eaf0";
+      ctx.font = "bold " + Math.round(24 * UI) + "px 'Courier New', monospace";
+      ctx.fillText(title, canvas.width / 2, cy - 10 * UI);
+      if (line2) {
+        ctx.font = Math.round(16 * UI) + "px 'Courier New', monospace";
+        ctx.fillText(line2, canvas.width / 2, cy + 20 * UI);
+      }
+      if (line3) {
+        ctx.fillStyle = "#8b90a3";
+        ctx.fillText(line3, canvas.width / 2, cy + 46 * UI);
+      }
+    }
+
+    // ---------- 3.14 THE GAME LOOP ----------
+    // Runs ~60 times per second. The snake takes one grid step every stepMs,
+    // but we DRAW every frame, using how far through the step we are.
+    let lastTime = performance.now();
+    let accumulator = 0;
+
+    function loop(now) {
+      requestAnimationFrame(loop);
+      const delta = Math.min(now - lastTime, 250);
+      lastTime = now;
+
+      if (state === "playing" && !paused) {
+        accumulator += delta;
+        while (accumulator >= stepMs && state === "playing") {
+          step();
+          accumulator -= stepMs;
+        }
+      }
+      draw(now);
+    }
+
+    // Start: build the buttons, show the demo snake, begin the loop
+    setupButtons();
+    showDemoSnake();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
